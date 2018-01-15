@@ -120,7 +120,7 @@
 		const at = [0.0, 0.0, 0.0];
 		const up = [0.0, 1.0, 0.0];
 
-		var axis  = [0, 0, 1];
+		var axis  = [0, 1, 0];
 		var xAxis = [1, 0, 0];
 		var yAxis = [0, 1, 0];
 		var zAxis = [0, 0, 1];
@@ -146,7 +146,7 @@
 		var cubeVertexIndexBuffer; 
 		var cubeNormalsBuffer;
 		
-		var rotToggle = false;
+		var rotToggle = true;
 
 		var floorTexture;
 		var floorVertexTextureCoordinateBuffer;
@@ -168,25 +168,32 @@
 				document.getElementById( "xButton" ).onclick = function () 
 				{
 					axis = xAxis;
+					rotToggle = true;
 				};
 
 				document.getElementById( "yButton" ).onclick = function () 
 				{
 					axis = yAxis;
+					rotToggle = true;
 				};
 
 				document.getElementById( "zButton" ).onclick = function () 
 				{
 					axis = zAxis;
+					rotToggle = true;
 				};
 			
 				document.getElementById( "Toggle" ).onclick = function () 
 				{
 					if(rotToggle)
+					{
 						rotToggle = false;
+					}
 					else
+					{
 						rotToggle = true;
-						render();
+						//render();
+					}
 				};
 			
 				document.getElementById("aspectSlider").onchange = function(event) 
@@ -507,8 +514,9 @@
 			uploadModelViewMatrixToShader();
 
 			uploadProjectionMatrixToShader();
-
-			mat4.rotate(modelViewMatrix, rotation, axis);
+			
+			if (rotToggle)
+				mat4.rotate(modelViewMatrix, rotation, axis);
 
 			// Draw floor -------------------------------------
 		  
@@ -599,7 +607,7 @@
 			drawCube(tableTexture);
 			popModelViewMatrix();
 		
-			if (!rotToggle)
+			//if (!rotToggle)
 			requestAnimFrame(render);
 		}
 		
