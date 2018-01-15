@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+
+<head>
+	<title>Graphics - A4</title>
+	<meta http-equiv='content-type' content='text/html; charset=ISO-8859-1'>
+	<!-- CSS Styles //-->
+	<link href='Common/css/style.css' type='text/css' rel='stylesheet'>
+	<link href='Common/css/desert.css' type='text/css' rel='stylesheet' />
+	<link href='Common/css/colorpicker.css' type='text/css' rel='stylesheet' />
+	<link href='Common/css/jquery-ui.min.css' type='text/css' rel='stylesheet' />
+	<!-- JavaScript Libraries //-->
+	<script type="text/javascript" src="Common/js/webgl-utils.js"></script>
+	<script type="text/javascript" src="Common/js/initShaders.js"></script>
+	<!--<script type='text/javascript' src='Common/js/gl-matrix-min.js'></script>-->
+	<script type="text/javascript" src="Common/js/glMatrix.js"></script>
+	<script type='text/javascript' src='Common/js/jquery-3.2.1.min.js'></script>
+	<script type='text/javascript' src='Common/js/jquery-ui.min.js'></script>
+	<script type="text/javascript" src="Common/webgl-utils.js"></script>
+	<script type='text/javascript' src='Common/js/prettify.js'></script>
+	<script type='text/javascript' src='Common/js/utils.js'></script>
+	<script type='text/javascript' src='Common/js/colorpicker.js'></script>
+	<script type='text/javascript' src='Common/js/codeview.js'></script>
+
+	<script id="vertex-shader" type="x-shader/x-vertex">
+
+		attribute vec4 vPosition;
+		attribute vec4 vNormal;
+		attribute vec2 vTexCoord;
+
+		uniform mat4 normalMatrix;
+		uniform mat4 modelViewMatrix;
+		uniform mat4 projectionMatrix;
+
+		varying vec3 vEyeVec;
+		varying vec3 varNormal;
+		varying vec4 vFinalColor;
+		varying vec2 fTexCoord;
+
+		void main()
+		{
+			vec4 vertex = modelViewMatrix * vPosition;
+			varNormal = vec3(normalMatrix * vNormal);
+			vEyeVec = -vec3(vertex.xyz);
+
+			fTexCoord = (vTexCoord * 3.0) - vec2(1.0, 1.0);
+
+			gl_Position = projectionMatrix * modelViewMatrix * vPosition;
+		}
+	</script>
+
+	<script id="fragment-shader" type="x-shader/x-fragment">
+		#ifdef GL_ES
+		precision highp float;
+		#endif
+
+		uniform float uShininess;        //shininess
+		uniform vec3 uLightDirection;  //light direction
+
+		uniform vec4 uLightAmbient;      //light ambient property
+		uniform vec4 uLightDiffuse;      //light diffuse property
+		uniform vec4 uLightSpecular;     //light specular property
+
+		uniform vec4 uMaterialAmbient;  //object ambient property
+		uniform vec4 uMaterialDiffuse;   //object diffuse property
+		uniform vec4 uMaterialSpecular;  //object specular property
+
+		varying vec3 varNormal;
+		varying vec3 vEyeVec;
+		varying vec2 fTexCoord;
+
+		uniform sampler2D uSampler;
+
+		void main(void)
+		{
+			vec3 L = normalize(uLightDirection);
+			vec3 N = normalize(varNormal);
+
+			//Lambert's cosine law
+			float lambertTerm = dot(N,-L);
+
+			//Ambient Term
+			vec4 Ia = uLightAmbient * uMaterialAmbient;
+
+			//Diffuse Term
+			vec4 Id = vec4(0.0,0.0,0.0,1.0);
+
+			//Specular Term
+			vec4 Is = vec4(0.0,0.0,0.0,1.0);
+
+			if(lambertTerm > 0.0) //only if lambertTerm is positive
+			{
+				Id = uLightDiffuse * uMaterialDiffuse * lambertTerm; //add diffuse term
+
+				vec3 E = normalize(vEyeVec);
+				vec3 R = reflect(L, N);
+				float specular = pow( max(dot(R, E), 0.0), uShininess);
+
+				Is = uLightSpecular * uMaterialSpecular * specular; //add specular term
+			}
+
+			//Final color
+			vec4 finalColor = Ia + Id + Is;
+			finalColor.a = 1.0;
+
+			gl_FragColor = finalColor * texture2D(uSampler, fTexCoord);
+		}
+	</script>
+		
+	<script id='code-js' type="text/javascript">
+		"use strict";
+
+		var program;
+		var canvas;
+		var gl;
+		var clearColor = [0.3, 0.3, 0.3, 1.0];
+
+		var modelViewMatrixStack;
+
+		var eye = [0.0, 0.0, 6];
+		const at = [0.0, 0.0, 0.0];
+		const up = [0.0, 1.0, 0.0];
+
+		var axis  = [0, 0, 1];
+		var xAxis = [1, 0, 0];
+		var yAxis = [0, 1, 0];
+		var zAxis = [0, 0, 1];
+
+		var near = 0.1;
+		var far = 10000;
+		var radius = 5.0;
+		var theta = 0.0;
+		var phi = 0.0;
+		var dr = 5.0 * Math.PI / 180.0;
+
+		var fovy = 90;  
+		var aspect = 1.0;
+		var rotation = 0.0;
+
+		var modelViewMatrix, projectionMatrix, normalMatrix;
+
+		var lightDirection = [1.0, -1.0, -1.0];
+		var lightDiffuse = [1.0, 1.0, 1.0, 1.0];
+		var materialDiffuse = [0.0, 0.0, 0.0, 1.0];
+
+		var cubeVertexPositionBuffer;
+		var cubeVertexIndexBuffer; 
+		var cubeNormalsBuffer;
+		
+		var rotToggle = false;
+
+		var floorTexture;
+		var floorVertexTextureCoordinateBuffer;
+
+		window.onload = function init() 
+		{
+			canvas = document.getElementById("gl-canvas");
+
+			gl = WebGLUtils.setupWebGL(canvas);
+			if (!gl) { alert("WebGL isn't available"); }
+			gl.viewport(0, 0, canvas.width, canvas.height);
+
+			//Element UI functions
+			{
+			
+				document.getElementById( "xButton" ).onclick = function () 
+				{
+					axis = xAxis;
+				};
+
+				document.getElementById( "yButton" ).onclick = function () 
+				{
+					axis = yAxis;
+				};
+
+				document.getElementById( "zButton" ).onclick = function () 
+				{
+					axis = zAxis;
+				};
+			
+				document.getElementById( "Toggle" ).onclick = function () 
+				{
+					if(rotToggle)
+						rotToggle = false;
+					else
+						rotToggle = true;
+						render();
+				};
+			
+				document.getElementById("aspectSlider").onchange = function(event) 
+				{
+					aspect = event.target.value;
+				};
+			
+				document.getElementById("fovSlider").onchange = function(event) 
+				{
+					fovy = event.target.value;
+				};
+			}
+
+			initProgram();
+			initBuffers();
+			initLights();
+			initTextures();
+			render();
+		}
+
+		function initTextures()
+		{
+			//loadImageForTexture("wood_128x128.jpg", floorTexture)
+			var image = document.getElementById("floorTexImage");
+            floorTexture = configureTexture(image, floorTexture);
+		}
+
+		function loadImageForTexture(url, texture) {
+			var image = new Image();
+			image.onload = function () {
+				configureTexture(image, texture);
+			}
+			image.src = url;
+		}
+
+		function configureTexture(image, texture)
+		{
+			texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB,
+                gl.RGB, gl.UNSIGNED_BYTE, image);
+            gl.generateMipmap(gl.TEXTURE_2D);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER,
+                gl.NEAREST_MIPMAP_LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+            gl.bindTexture(gl.TEXTURE_2D, null);
+
+			return texture;
+		}
+
+		function normalize(out, a) 
+		{
+			var x = a[0];
+			var y = a[1];
+			var z = a[2];
+			var len = x * x + y * y + z * z;
+			if (len > 0) 
+			{
+				len = 1 / Math.sqrt(len);
+				out[0] = a[0] * len;
+				out[1] = a[1] * len;
+				out[2] = a[2] * len;
+				out[3] = 1;
+			}
+
+			return out;
+		}
+
+		var modelViewMatrix = mat4.create();
+
+		var projectionMatrix = mat4.create();
+
+		var normalMatrix = mat4.create();		
+
+		function setupCubeBuffers() 
+		{
+
+			var cubeVertexPosition = 
+			[
+				// Front face
+				1.0,  1.0,  1.0, //v0
+				-1.0,  1.0,  1.0, //v1
+				-1.0, -1.0,  1.0, //v2
+				1.0, -1.0,  1.0, //v3
+
+				// Back face
+				1.0,  1.0, -1.0, //v4
+				-1.0,  1.0, -1.0, //v5
+				-1.0, -1.0, -1.0, //v6
+				1.0, -1.0, -1.0, //v7
+
+				// Left face
+				-1.0,  1.0,  1.0, //v8
+				-1.0,  1.0, -1.0, //v9
+				-1.0, -1.0, -1.0, //v10
+				-1.0, -1.0,  1.0, //v11
+
+				// Right face
+				1.0,  1.0,  1.0, //12
+				1.0, -1.0,  1.0, //13
+				1.0, -1.0, -1.0, //14
+				1.0,  1.0, -1.0, //15
+
+				// Top face
+				1.0,  1.0,  1.0, //v16
+				1.0,  1.0, -1.0, //v17
+				-1.0,  1.0, -1.0, //v18
+				-1.0,  1.0,  1.0, //v19
+
+				// Bottom face
+				1.0, -1.0,  1.0, //v20
+				1.0, -1.0, -1.0, //v21
+				-1.0, -1.0, -1.0, //v22
+				-1.0, -1.0,  1.0 //v23
+			];
+
+			var cubeVertexIndices = 
+			[
+				0, 1, 2,      0, 2, 3,    // Front face
+				4, 6, 5,      4, 7, 6,    // Back face
+				8, 9, 10,     8, 10, 11,  // Left face
+				12, 13, 14,   12, 14, 15, // Right face
+				16, 17, 18,   16, 18, 19, // Top face
+				20, 22, 21,   20, 23, 22  // Bottom face
+			];
+
+			var cubeNormals = utils.calculateNormals(cubeVertexPosition, cubeVertexIndices);
+
+			cubeVertexPositionBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubeVertexPosition), gl.STATIC_DRAW);
+			cubeVertexPositionBuffer.itemSize = 3;
+			cubeVertexPositionBuffer.numberOfItems = 24;
+
+			cubeVertexIndexBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
+			gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(cubeVertexIndices), gl.STATIC_DRAW);
+			cubeVertexIndexBuffer.itemSize = 1;
+			cubeVertexIndexBuffer.numberOfItems = 36;
+
+			cubeNormalsBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, cubeNormalsBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubeNormals), gl.STATIC_DRAW);
+			gl.bindBuffer(gl.ARRAY_BUFFER, null);
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+			floorVertexTextureCoordinateBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, floorVertexTextureCoordinateBuffer);
+            var floorVertexTextureCoordinates = [
+				// Front
+				0.0,  0.0,
+				1.0,  0.0,
+				1.0,  1.0,
+				0.0,  1.0,
+				// Back
+				0.0,  0.0,
+				1.0,  0.0,
+				1.0,  1.0,
+				0.0,  1.0,
+				// Top
+				0.0,  0.0,
+				1.0,  0.0,
+				1.0,  1.0,
+				0.0,  1.0,
+				// Bottom
+				0.0,  0.0,
+				1.0,  0.0,
+				1.0,  1.0,
+				0.0,  1.0,
+				// Right
+				0.0,  0.0,
+				1.0,  0.0,
+				1.0,  1.0,
+				0.0,  1.0,
+				// Left
+				0.0,  0.0,
+				1.0,  0.0,
+				1.0,  1.0,
+				0.0,  1.0,
+			  ];
+
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(floorVertexTextureCoordinates),
+                gl.STATIC_DRAW);
+
+            program.FLOOR_VERTEX_TEX_COORD_BUF_ITEM_SIZE = 2;
+            program.FLOOR_VERTEX_TEX_COORD_BUF_NUM_ITEMS = 4;
+
+		}
+
+		function drawCube()
+		{
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
+			gl.vertexAttribPointer(program.vPosition, cubeVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+			gl.bindBuffer(gl.ARRAY_BUFFER, cubeNormalsBuffer);
+			gl.vertexAttribPointer(program.vNormal, cubeVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, floorVertexTextureCoordinateBuffer);
+            gl.vertexAttribPointer(program.vTexture, 2, gl.FLOAT, false, 0, 0);
+			gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, floorTexture);
+
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
+			gl.drawElements(gl.TRIANGLES, cubeVertexIndexBuffer.numberOfItems, gl.UNSIGNED_SHORT, 0);
+
+		}
+
+		function uploadModelViewMatrixToShader() 
+		{
+			gl.uniformMatrix4fv(program.modelViewMatrix, false, modelViewMatrix);
+		}
+
+		function uploadProjectionMatrixToShader() 
+		{
+			gl.uniformMatrix4fv(program.projectionMatrix,false, projectionMatrix);
+		}
+
+		function pushModelViewMatrix() 
+		{
+			var copyToPush = mat4.create(modelViewMatrix);
+			modelViewMatrixStack.push(copyToPush);
+		}
+
+		function popModelViewMatrix() 
+		{
+			if (modelViewMatrixStack.length == 0) 
+			{
+				throw "Error popModelViewMatrix() - Stack is empty ";
+			}
+			modelViewMatrix = modelViewMatrixStack.pop();
+		}
+
+		function initBuffers() 
+		{				
+			setupCubeBuffers();
+		}
+
+		function initProgram() 
+		{
+			program = initShaders(gl, "vertex-shader", "fragment-shader");
+			gl.useProgram(program);
+
+			program.vPosition = gl.getAttribLocation(program, "vPosition");
+			program.modelViewMatrix = gl.getUniformLocation(program, "modelViewMatrix");
+			program.projectionMatrix = gl.getUniformLocation(program, "projectionMatrix");
+			program.vNormal = gl.getAttribLocation(program, "vNormal");
+			program.normalMatrix = gl.getUniformLocation(program, "normalMatrix");
+
+			program.uMaterialAmbient = gl.getUniformLocation(program, "uMaterialAmbient");
+			program.uMaterialDiffuse = gl.getUniformLocation(program, "uMaterialDiffuse");
+			program.uMaterialSpecular = gl.getUniformLocation(program, "uMaterialSpecular");
+			program.uShininess = gl.getUniformLocation(program, "uShininess");
+			program.uLightAmbient = gl.getUniformLocation(program, "uLightAmbient");
+			program.uLightDiffuse = gl.getUniformLocation(program, "uLightDiffuse");
+			program.uLightSpecular = gl.getUniformLocation(program, "uLightSpecular");
+			program.uLightDirection = gl.getUniformLocation(program, "uLightDirection");
+
+			program.uniformMVMatrix = gl.getUniformLocation(program, "modelViewMatrix");
+			program.uniformProjMatrix = gl.getUniformLocation(program, "projectionMatrix");
+
+			program.vTexture = gl.getAttribLocation(program, "vTexCoord");
+			program.uSampler = gl.getUniformLocation(program, "uSampler");
+
+			gl.enableVertexAttribArray(program.vPosition);
+			gl.enableVertexAttribArray(program.vNormal);
+			gl.enableVertexAttribArray(program.vTexture)
+
+			modelViewMatrixStack = [];
+		}
+
+
+
+		function initLights() 
+		{
+			gl.uniform3f(program.uLightDirection, -0.25, -0.25, -0.15);
+			gl.uniform4fv(program.uLightAmbient, [0.03, 0.03, 0.03, 1.0]);
+			gl.uniform4fv(program.uLightDiffuse, [1.0, 1.0, 1.0, 1.0]);
+			gl.uniform4fv(program.uLightSpecular, [1.0, 1.0, 1.0, 1.0]);
+			gl.uniform4fv(program.uMaterialAmbient, [1.0, 1.0, 1.0, 1.0]);
+			gl.uniform4fv(program.uMaterialDiffuse, [1.0, 1.0, 1.0, 1.0]);
+			gl.uniform4fv(program.uMaterialSpecular, [1.0, 1.0, 1.0, 1.0]);
+			gl.uniform1f(program.uShininess, 230.0);	
+		}
+
+
+		function render() 
+		{
+			rotation += 0.05;
+			
+			gl.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+			gl.clearDepth(100.0);
+			gl.enable(gl.DEPTH_TEST);
+			gl.depthFunc(gl.LEQUAL);
+			gl.viewport(0, 0, canvas.width, canvas.height);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+			gl.uniformMatrix4fv(program.modelViewMatrix, false, modelViewMatrix);
+			gl.uniformMatrix4fv(program.projectionMatrix, false, projectionMatrix);
+			gl.uniformMatrix4fv(program.normalMatrix, false, normalMatrix);
+
+			mat4.set(modelViewMatrix, normalMatrix);
+			mat4.inverse(normalMatrix);
+			mat4.transpose(normalMatrix);   
+
+			mat4.perspective(fovy, aspect, 0.1, 100.0, projectionMatrix);
+			mat4.identity(modelViewMatrix); //load the identity matrix to modelViewMatrix
+			
+			mat4.lookAt([9, 3, 6],[0, 0, 0], [0, 1,0], modelViewMatrix);
+
+			uploadModelViewMatrixToShader();
+
+			uploadProjectionMatrixToShader();
+
+			mat4.rotate(modelViewMatrix, rotation, axis);
+
+			// Draw floor -------------------------------------
+		  
+			pushModelViewMatrix();
+			mat4.translate(modelViewMatrix, [0.0, -0.2, 0.0], modelViewMatrix); 
+			mat4.scale(modelViewMatrix, [4.5, 0.2, 4.5], modelViewMatrix);
+
+			uploadModelViewMatrixToShader();
+		  
+			drawCube();
+			popModelViewMatrix();
+		  
+			//-------------------------------------------------
+		  
+			// Draw box ---------------------------------------
+
+			pushModelViewMatrix();
+			mat4.translate(modelViewMatrix, [0.0, 3.2 ,0.0], modelViewMatrix); 
+			mat4.scale(modelViewMatrix, [1, 1, 1], modelViewMatrix);
+
+			uploadModelViewMatrixToShader();
+
+			drawCube();
+			popModelViewMatrix();
+		  
+			//-------------------------------------------------
+		  
+			// Draw tabletop ----------------------------------
+
+			pushModelViewMatrix();
+			mat4.translate(modelViewMatrix, [0.0, 2, 0.0], modelViewMatrix); 
+			mat4.scale(modelViewMatrix, [3, 0.2, 3], modelViewMatrix);
+
+			uploadModelViewMatrixToShader();
+		  
+			drawCube();
+			popModelViewMatrix();  
+		  
+			//-------------------------------------------------
+		  
+			// Draw tableLeg1 ---------------------------------
+		   
+			pushModelViewMatrix();
+			mat4.translate(modelViewMatrix, [-2.85, 1, 2.85], modelViewMatrix);
+			mat4.scale(modelViewMatrix, [0.15, 1, 0.15], modelViewMatrix);
+
+			uploadModelViewMatrixToShader();
+		  
+			drawCube();
+			popModelViewMatrix();
+
+			//-------------------------------------------------
+		  
+			// Draw tableLeg2 ---------------------------------
+		  
+			pushModelViewMatrix();
+			mat4.translate(modelViewMatrix, [2.85, 1, -2.85], modelViewMatrix);
+			mat4.scale(modelViewMatrix, [0.15, 1, 0.15], modelViewMatrix);
+
+			uploadModelViewMatrixToShader();
+		  
+			drawCube();
+			popModelViewMatrix();
+		  
+			//-------------------------------------------------
+		  
+			// Draw tableLeg3 ---------------------------------
+		  
+			pushModelViewMatrix();
+			mat4.translate(modelViewMatrix, [2.85, 1, 2.85], modelViewMatrix);
+			mat4.scale(modelViewMatrix, [0.15, 1, 0.15], modelViewMatrix);
+
+			uploadModelViewMatrixToShader();
+		  
+			drawCube();
+			popModelViewMatrix();
+		  
+			//-------------------------------------------------
+		  
+			// Draw tableLeg4 ---------------------------------
+		 
+			pushModelViewMatrix();
+			mat4.translate(modelViewMatrix, [-2.85, 1, -2.85], modelViewMatrix);
+			mat4.scale(modelViewMatrix, [0.15, 1, 0.15], modelViewMatrix);
+		  
+			uploadModelViewMatrixToShader();
+  
+			drawCube();
+			popModelViewMatrix();
+		
+			if (!rotToggle)
+			requestAnimFrame(render);
+		}
+		
+	</script>
+
+</head>
+
+<body>
+	<div id='top'>
+		<h2>Graphics - A4</h2>
+		<img id="floorTexImage" src="wood_floor_256.jpg" style="display:none" />
+		<img id="tableTexImage" src="wood_128x128.jpg" style="display:none" />
+		<img id="cubeTexImage" src="wicker_256.jpg" style="display:none" />
+
+
+	</div>
+
+	<div id='contents'>
+		<div id='canvasContainer'>
+			<canvas id='gl-canvas' width='512' height='512'>
+			Your browser does not support the HTML5 canvas element.
+			</canvas>
+		</div>
+
+		<div id='controls'>
+			
+		</div>
+	</div>
+		
+		<button id= "xButton">Rotate X</button>
+
+		<button id= "yButton">Rotate Y</button>
+
+		<button id= "zButton">Rotate Z</button>
+		  
+		<button id= "Toggle">Toggle Rotation</button>
+		  
+		<div>   
+			FOVY 10 <input id= "fovSlider" type="range" min = "10" max = "120" step="5" value="70" /> 120	
+		</div>
+
+		<div>
+			ASPECT 0.5 <input id= "aspectSlider" type="range" min="0.5" max="2" step="0.1" value="1" /> 2
+		</div>
+
+	<div id='bottom'>
+		<table style='padding=0px'>
+			<tr>
+			<td align='right'>Light Color (Light Diffuse Term):</td>
+			<td colspan='2'>
+			<div id='colorSelectorLight' class='colorSelector'>
+			<div style='background-color:rgb(256,256,256)'></div>
+			</div>
+		</td>
+	<td>Sphere Color (Material Diffuse Term):</td>
+	<td colspan='2'>
+	<div id='colorSelectorSphere' class='colorSelector'>
+	<div style='background-color:rgb(128,205,26)'></div>
+	</div>
+	</td>
+	</tr>
+	<tr>
+	<td align='right'>Light Ambient Term:</td>
+	<td id='slider-la-value' width='30px'>0.03</td>
+	<td>
+	<div id='slider-la' />
+	</td>
+	<td>Material Ambient Term:</td>
+	<td id='slider-ma-value' width='30px'>1.0</td>
+	<td colspan='3'>
+	<div id='slider-ma' />
+	</td>
+	</tr>
+
+	<tr>
+	<td align='right'>Light Specular Term:</td>
+	<td id='slider-ls-value' width='30px'>1.0</td>
+	<td>
+	<div id='slider-ls' />
+	</td>
+	<td>Material Specular Term:</td>
+	<td id='slider-ms-value' width='30px'>1.0</td>
+	<td colspan='3'>
+	<div id='slider-ms' />
+	</td>
+	</tr>
+	<tr>
+
+	<td align='right'>X:</td>
+	<td id='slider-x-value' width='30px' align='center'>0</td>
+	<td width='150px'>
+	<div id='slider-x' />
+	</td>
+
+	<td>Shininess:</td>
+	<td id='slider-s-value' width='30px'>230</td>
+	<td width='150px'>
+	<div id='slider-s' />
+	</td>
+	</tr>
+	<tr>
+	<td align='right'>Y:</td>
+	<td id='slider-y-value' width='30px' align='center'>-1.0</td>
+	<td width='150px'>
+	<div id='slider-y' />
+	</td>
+	<td>Background Color (gl.clearColor):</td>
+	<td colspan='2'>
+	<div id='colorSelectorBg' class='colorSelector'>
+	<div style='background-color:rgb(28,28,28)'></div>
+	</div>
+	</td>
+	</tr>
+	<tr>
+	<td align='right'>Z:</td>
+	<td id='slider-z-value' width='30px' align='center'>-1.0</td>
+	<td width='150px'>
+	<div id='slider-z' />
+	</td>
+
+	</tr>
+	</table>
+	<br/>
+
+	</div>
+	<script>cview.run(cview.MODE_VIEW_AND_CONTROLS);</script>
+	<script>
+	$('#slider-s').slider({ value: 230, min: 0.0, max: 500, step: 1, slide: updateShininess });
+	$('#slider-la').slider({ value: 0.0, min: -0.01, max: 1.0, step: 0.01, slide: updateLightAmbientTerm });
+	$('#slider-ld').slider({ value: 0.3, min: -0.01, max: 1.0, step: 0.01, slide: updateLightDiffuseTerm });
+	$('#slider-ls').slider({ value: 1.0, min: -0.01, max: 1.0, step: 0.01, slide: updateLightSpecularTerm });
+	$('#slider-ma').slider({ value: 1.0, min: -0.2, max: 1.2, step: 0.1, slide: updateMaterialAmbientTerm });
+	$('#slider-ms').slider({ value: 1.0, min: -0.01, max: 1.2, step: 0.1, slide: updateMaterialSpecularTerm });
+	$('#slider-x').slider({ value: 0, min: -10, max: 10, step: 0.1, slide: updateLight, change: updateLight });
+	$('#slider-y').slider({ value: -1, min: -10, max: 10, step: 0.1, slide: updateLight, change: updateLight });
+	$('#slider-z').slider({ value: -1, min: -10, max: 10, step: 0.1, slide: updateLight, change: updateLight });
+
+
+	function updateShininess() {
+	var v = $('#slider-s').slider("value");
+	gl.uniform1f(program.uShininess, v);
+	$('#slider-s-value').html(v);
+	}
+
+	function updateLightAmbientTerm() {
+	var la = $('#slider-la').slider("value");
+	gl.uniform4fv(program.uLightAmbient, [la, la, la, 1.0]);
+	$('#slider-la-value').html(la);
+	}
+
+	function updateLightDiffuseTerm() {
+	var ld = $('#slider-ld').slider("value");
+	gl.uniform4fv(program.uLightDiffuse, [ld, ld, ld, 1.0]);
+	$('#slider-ld-value').html(ld);
+	}
+
+	function updateLightSpecularTerm() {
+	var ls = $('#slider-ls').slider("value");
+	gl.uniform4fv(program.uLightSpecular, [ls, ls, ls, 1.0]);
+	$('#slider-ls-value').html(ls);
+	}
+
+
+	function updateMaterialAmbientTerm() {
+	var ma = $('#slider-ma').slider("value");
+	gl.uniform4fv(program.uMaterialAmbient, [ma, ma, ma, 1.0]);
+	$('#slider-ma-value').html(ma);
+	}
+
+	function updateMaterialSpecularTerm() {
+	var ms = $('#slider-ms').slider("value");
+	gl.uniform4fv(program.uMaterialSpecular, [ms, ms, ms, 1.0]);
+	$('#slider-ms-value').html(ms);
+	}
+
+
+	function updateLight() {
+	var x = $('#slider-x').slider("value");
+	var y = $('#slider-y').slider("value");
+	var z = $('#slider-z').slider("value");
+	gl.uniform3fv(program.uLightDirection, [x, y, z]);
+	$('#slider-x-value').html(x);
+	$('#slider-y-value').html(y);
+	$('#slider-z-value').html(z);
+	}
+
+	function updateObjectColor(r, g, b) {
+	gl.uniform4fv(program.uMaterialDiffuse, [r, g, b, 1.0]);
+	}
+
+	function updateLightColor(r, g, b) {
+	gl.uniform4fv(program.uLightDiffuse, [r, g, b, 1.0]);
+	}
+
+	function updateClearColor(r, g, b) {
+	clearColor = [r, g, b, 1.0];
+	}
+
+
+	$('#colorSelectorSphere').ColorPicker({
+	onSubmit: function (hsb, hex, rgb, el) {
+	$(el).val(hex);
+	$(el).ColorPickerHide();
+
+	},
+	color: '#00ff00',
+	onShow: function (colpkr) {
+	$(colpkr).fadeIn(500);
+	return false;
+	},
+	onHide: function (colpkr) {
+	$(colpkr).fadeOut(500);
+	return false;
+	},
+	onChange: function (hsb, hex, rgb) {
+	$('#colorSelectorSphere div').css('backgroundColor', '#' + hex);
+	updateObjectColor(rgb.r / 256, rgb.g / 256, rgb.b / 256);
+	},
+
+	onBeforeShow: function (colpkr) {
+	$(colpkr).ColorPickerSetColor('rgb(0.5,0.8,0.1)');
+	}
+	})
+
+
+	$('#colorSelectorLight').ColorPicker({
+	onSubmit: function (hsb, hex, rgb, el) {
+	$(el).val(hex);
+	$(el).ColorPickerHide();
+
+	},
+	color: '#00ff00',
+	onShow: function (colpkr) {
+	$(colpkr).fadeIn(500);
+	return false;
+	},
+	onHide: function (colpkr) {
+	$(colpkr).fadeOut(500);
+	return false;
+	},
+	onChange: function (hsb, hex, rgb) {
+	$('#colorSelectorLight div').css('backgroundColor', '#' + hex);
+	updateLightColor(rgb.r / 256, rgb.g / 256, rgb.b / 256);
+	},
+
+	onBeforeShow: function (colpkr) {
+	$(colpkr).ColorPickerSetColor('rgb(0.5,0.8,0.1)');
+	}
+	})
+
+	$('#colorSelectorBg').ColorPicker({
+	onSubmit: function (hsb, hex, rgb, el) {
+	$(el).val(hex);
+	$(el).ColorPickerHide();
+
+	},
+	color: '#00ff00',
+	onShow: function (colpkr) {
+	$(colpkr).fadeIn(500);
+	return false;
+	},
+	onHide: function (colpkr) {
+	$(colpkr).fadeOut(500);
+	return false;
+	},
+	onChange: function (hsb, hex, rgb) {
+	$('#colorSelectorBg div').css('backgroundColor', '#' + hex);
+	updateClearColor(rgb.r / 256, rgb.g / 256, rgb.b / 256);
+	},
+
+	onBeforeShow: function (colpkr) {
+	$(colpkr).ColorPickerSetColor('rgb(0.5,0.8,0.1)');
+	}
+	})
+
+	</script>
+</body>
+
+</html>
