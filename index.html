@@ -522,7 +522,7 @@
 		  
 			pushModelViewMatrix();
 			mat4.translate(modelViewMatrix, [0.0, -0.2, 0.0], modelViewMatrix); 
-			mat4.scale(modelViewMatrix, [4.5, 0.2, 4.5], modelViewMatrix);
+			mat4.scale(modelViewMatrix, [4.5, 0.001, 4.5], modelViewMatrix);
 
 			uploadModelViewMatrixToShader();
 		  
