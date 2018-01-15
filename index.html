@@ -151,6 +151,9 @@
 		var floorTexture;
 		var floorVertexTextureCoordinateBuffer;
 
+		var cubeTexture;
+		var tableTexture;
+
 		window.onload = function init() 
 		{
 			canvas = document.getElementById("gl-canvas");
@@ -206,9 +209,14 @@
 
 		function initTextures()
 		{
-			//loadImageForTexture("wood_128x128.jpg", floorTexture)
-			var image = document.getElementById("floorTexImage");
-            floorTexture = configureTexture(image, floorTexture);
+			var floorImage = document.getElementById("floorTexImage");
+			floorTexture = configureTexture(floorImage);
+
+			var cubeImage = document.getElementById("cubeTexImage");
+			cubeTexture = configureTexture(cubeImage);
+
+			var tableImage = document.getElementById("tableTexImage");
+			tableTexture = configureTexture(tableImage);
 		}
 
 		function loadImageForTexture(url, texture) {
@@ -219,9 +227,9 @@
 			image.src = url;
 		}
 
-		function configureTexture(image, texture)
+		function configureTexture(image)
 		{
-			texture = gl.createTexture();
+			var texture = gl.createTexture();
             gl.bindTexture(gl.TEXTURE_2D, texture);
             gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB,
@@ -375,7 +383,7 @@
 
 		}
 
-		function drawCube()
+		function drawCube(textureToDraw)
 		{
 
 			gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
@@ -387,7 +395,7 @@
 			gl.bindBuffer(gl.ARRAY_BUFFER, floorVertexTextureCoordinateBuffer);
             gl.vertexAttribPointer(program.vTexture, 2, gl.FLOAT, false, 0, 0);
 			gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, floorTexture);
+            gl.bindTexture(gl.TEXTURE_2D, textureToDraw);
 
 			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
 			gl.drawElements(gl.TRIANGLES, cubeVertexIndexBuffer.numberOfItems, gl.UNSIGNED_SHORT, 0);
@@ -510,7 +518,7 @@
 
 			uploadModelViewMatrixToShader();
 		  
-			drawCube();
+			drawCube(floorTexture);
 			popModelViewMatrix();
 		  
 			//-------------------------------------------------
@@ -523,7 +531,7 @@
 
 			uploadModelViewMatrixToShader();
 
-			drawCube();
+			drawCube(cubeTexture);
 			popModelViewMatrix();
 		  
 			//-------------------------------------------------
@@ -536,7 +544,7 @@
 
 			uploadModelViewMatrixToShader();
 		  
-			drawCube();
+			drawCube(tableTexture);
 			popModelViewMatrix();  
 		  
 			//-------------------------------------------------
@@ -549,7 +557,7 @@
 
 			uploadModelViewMatrixToShader();
 		  
-			drawCube();
+			drawCube(tableTexture);
 			popModelViewMatrix();
 
 			//-------------------------------------------------
@@ -562,7 +570,7 @@
 
 			uploadModelViewMatrixToShader();
 		  
-			drawCube();
+			drawCube(tableTexture);
 			popModelViewMatrix();
 		  
 			//-------------------------------------------------
@@ -575,7 +583,7 @@
 
 			uploadModelViewMatrixToShader();
 		  
-			drawCube();
+			drawCube(tableTexture);
 			popModelViewMatrix();
 		  
 			//-------------------------------------------------
@@ -588,7 +596,7 @@
 		  
 			uploadModelViewMatrixToShader();
   
-			drawCube();
+			drawCube(tableTexture);
 			popModelViewMatrix();
 		
 			if (!rotToggle)
